@@ -167,10 +167,15 @@ def compute_simpson_index(
     out = cp.empty(n_cells, dtype=cp.float32)
     logU = np.float32(np.log(perplexity))
 
-    block_size = 256
+    # Shared memory: each thread needs n_labels floats for label_sums.
+    # Cap block_size so we stay within the 48 KB shared-memory limit.
+    MAX_SHARED_BYTES = 49152
+    bytes_per_thread = n_labels * 4  # 4 bytes per float
+    block_size = min(256, MAX_SHARED_BYTES // bytes_per_thread)
+    if block_size < 1:
+        block_size = 1
     grid_size = (n_cells + block_size - 1) // block_size
-    # Shared memory: each thread needs n_labels floats for label_sums
-    shared_mem_bytes = block_size * n_labels * 4  # 4 bytes per float
+    shared_mem_bytes = block_size * bytes_per_thread
 
     _SIMPSON_KERNEL(
         (grid_size,),
