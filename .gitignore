@@ -5,6 +5,7 @@ buck-out/
 
 # Compiled files
 .venv/
+.venv-*/
 __pycache__/
 .mypy_cache/
 .ruff_cache/
