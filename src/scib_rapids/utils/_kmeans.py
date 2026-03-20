@@ -4,7 +4,7 @@ import cupy as cp
 import numpy as np
 from sklearn.utils import check_array
 
-from ._dist import cdist
+from ._dist import cdist, cdist_sq
 from ._utils import get_ndarray
 
 
@@ -71,7 +71,7 @@ class KMeans:
             candidates = X[candidates_idx]
 
             # Compute distances for each candidate
-            dist_sq_candidates = cp.sum((X[None, :, :] - candidates[:, None, :]) ** 2, axis=2)
+            dist_sq_candidates = cdist_sq(candidates, X)
             dist_sq_candidates = cp.minimum(min_dist_sq[None, :], dist_sq_candidates)
             candidates_pot = cp.sum(dist_sq_candidates, axis=1)
 
@@ -103,7 +103,7 @@ class KMeans:
         self.inertia_ = best_inertia
 
         # Compute final labels
-        dist = cp.sum((X_gpu[:, None, :] - best_centroids[None, :, :]) ** 2, axis=2)
+        dist = cdist_sq(X_gpu, best_centroids)
         self.labels_ = get_ndarray(cp.argmin(dist, axis=1))
         return self
 
@@ -116,7 +116,7 @@ class KMeans:
         old_inertia = np.inf
         for _ in range(self.max_iter):
             # Assign labels
-            dist = cp.sum((X[:, None, :] - centroids[None, :, :]) ** 2, axis=2)
+            dist = cdist_sq(X, centroids)
             labels = cp.argmin(dist, axis=1)
 
             # Update centroids
@@ -138,6 +138,6 @@ class KMeans:
             centroids = new_centroids
 
         # Final inertia
-        dist = cp.sum((X[:, None, :] - centroids[None, :, :]) ** 2, axis=2)
+        dist = cdist_sq(X, centroids)
         final_inertia = float(cp.sum(cp.min(dist, axis=1)).item())
         return centroids, final_inertia

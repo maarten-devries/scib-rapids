@@ -4,6 +4,29 @@ import cupy as cp
 import numpy as np
 
 
+def cdist_sq(x: np.ndarray, y: np.ndarray) -> cp.ndarray:
+    """Squared euclidean pairwise distances without materialising (n, m, d).
+
+    Parameters
+    ----------
+    x
+        Array of shape (n_a, d)
+    y
+        Array of shape (n_b, d)
+
+    Returns
+    -------
+    dist_sq
+        Array of shape (n_a, n_b)
+    """
+    x = cp.asarray(x, dtype=cp.float32)
+    y = cp.asarray(y, dtype=cp.float32)
+    x_sq = cp.sum(x ** 2, axis=1, keepdims=True)
+    y_sq = cp.sum(y ** 2, axis=1, keepdims=True)
+    dist_sq = x_sq + y_sq.T - 2.0 * x @ y.T
+    return cp.maximum(dist_sq, 0.0)
+
+
 def cdist(x: np.ndarray, y: np.ndarray, metric: Literal["euclidean", "cosine"] = "euclidean") -> cp.ndarray:
     """CuPy implementation of pairwise distance computation.
 
@@ -28,13 +51,7 @@ def cdist(x: np.ndarray, y: np.ndarray, metric: Literal["euclidean", "cosine"] =
     y = cp.asarray(y, dtype=cp.float32)
 
     if metric == "euclidean":
-        # ||x - y||^2 = ||x||^2 + ||y||^2 - 2 * x @ y^T
-        x_sq = cp.sum(x**2, axis=1, keepdims=True)
-        y_sq = cp.sum(y**2, axis=1, keepdims=True)
-        dist_sq = x_sq + y_sq.T - 2.0 * x @ y.T
-        # Clamp to avoid negative values from floating point errors
-        dist_sq = cp.maximum(dist_sq, 0.0)
-        return cp.sqrt(dist_sq)
+        return cp.sqrt(cdist_sq(x, y))
     else:
         # cosine distance = 1 - (x @ y^T) / (||x|| * ||y||)
         x_norm = cp.linalg.norm(x, axis=1, keepdims=True)
