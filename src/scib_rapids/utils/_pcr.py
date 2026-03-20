@@ -50,8 +50,11 @@ def principal_component_regression(
     X_pca = cp.asarray(pca_results.coordinates, dtype=cp.float32)
     var = cp.asarray(pca_results.variance, dtype=cp.float32)
 
-    # lstsq
-    residual_sum = cp.linalg.lstsq(covariate_gpu, X_pca, rcond=None)[1]
+    # lstsq — compute residuals manually because CuPy returns empty
+    # residuals when the covariate matrix is rank-deficient (e.g. after
+    # centering one-hot encoded columns).
+    solution = cp.linalg.lstsq(covariate_gpu, X_pca, rcond=None)[0]
+    residual_sum = cp.sum((X_pca - covariate_gpu @ solution) ** 2, axis=0)
     total_sum = cp.sum((X_pca - cp.mean(X_pca, axis=0, keepdims=True)) ** 2, axis=0)
     r2 = cp.maximum(0, 1 - residual_sum / total_sum)
 
