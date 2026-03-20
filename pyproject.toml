@@ -1,0 +1,139 @@
+[build-system]
+build-backend = "hatchling.build"
+requires = ["hatchling"]
+
+
+[project]
+name = "scib-rapids"
+version = "0.1.0"
+description = "GPU-accelerated single-cell integration benchmarking metrics using RAPIDS (cuML, CuPy)"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [{ name = "Maarten de Vries" }]
+maintainers = [{ name = "Maarten de Vries" }]
+urls.Documentation = "https://scib-rapids.readthedocs.io/"
+urls.Source = "https://github.com/maarten-devries/scib-rapids"
+urls.Home-page = "https://github.com/maarten-devries/scib-rapids"
+dependencies = [
+    "anndata",
+    "cupy-cuda12x>=13.0",
+    "numpy",
+    "pandas",
+    "scipy",
+    "scikit-learn",
+    "pynndescent",
+    "igraph>0.9.0",
+    "umap-learn>=0.5.0",
+]
+
+[project.optional-dependencies]
+dev = ["pre-commit", "twine>=4.0.2"]
+doc = [
+    "sphinx>=4",
+    "sphinx-book-theme>=1.0",
+    "myst-nb",
+    "sphinxcontrib-bibtex>=2.6",
+    "pybtex-docutils>=1.0.0",
+    "scanpydoc[typehints]>=0.7.4",
+    "sphinxext-opengraph",
+    "ipython",
+    "ipykernel",
+    "sphinx-copybutton",
+]
+test = [
+    "pytest",
+    "coverage",
+    "scib-metrics>=0.5",
+    "harmonypy",
+    "joblib",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ['src/scib_rapids']
+
+[tool.coverage.run]
+source = ["scib_rapids"]
+omit = ["**/test_*.py"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+xfail_strict = true
+
+
+[tool.ruff]
+src = ["src"]
+line-length = 120
+lint.select = [
+    "F",      # Errors detected by Pyflakes
+    "E",      # Error detected by Pycodestyle
+    "W",      # Warning detected by Pycodestyle
+    "I",      # isort
+    "D",      # pydocstyle
+    "B",      # flake8-bugbear
+    "TID",    # flake8-tidy-imports
+    "C4",     # flake8-comprehensions
+    "BLE",    # flake8-blind-except
+    "UP",     # pyupgrade
+    "RUF100", # Report unused noqa directives
+    "ICN",    # flake8-import-conventions
+    "TCH",    # flake8-type-checking
+    "FA",     # flake8-future-annotations
+]
+lint.ignore = [
+    # line too long -> we accept long comment lines; formatter gets rid of long code lines
+    "E501",
+    # Do not assign a lambda expression, use a def -> lambda expression assignments are convenient
+    "E731",
+    # allow I, O, l as variable names -> I is the identity matrix
+    "E741",
+    # Missing docstring in public package
+    "D104",
+    # Missing docstring in public module
+    "D100",
+    # Missing docstring in __init__
+    "D107",
+    # Errors from function calls in argument defaults. These are fine when the result is immutable.
+    "B008",
+    # __magic__ methods are are often self-explanatory, allow missing docstrings
+    "D105",
+    # First line should be in imperative mood; try rephrasing
+    "D401",
+    ## Disable one in each pair of mutually incompatible rules
+    # We don't want a blank line before a class docstring
+    "D203",
+    # We want docstrings to start immediately after the opening triple quote
+    "D213",
+    # Missing argument description in the docstring TODO: enable
+    "D417",
+    # No explicit stacklevel argument
+    "B028",
+]
+extend-include = ["*.ipynb"]
+
+[tool.ruff.lint.per-file-ignores]
+"docs/*" = ["I", "BLE001", "E402", "B018"]
+"tests/*" = ["D", "B018"]
+"*/__init__.py" = ["F401"]
+"src/scib_rapids/__init__.py" = ["I"]
+
+[tool.ruff.format]
+docstring-code-format = true
+
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"
+
+[tool.jupytext]
+formats = "ipynb,md"
+
+[tool.cruft]
+skip = [
+    "tests",
+    "src/**/__init__.py",
+    "src/**/basic.py",
+    "docs/api.md",
+    "docs/changelog.md",
+    "docs/references.bib",
+    "docs/references.md",
+    "docs/notebooks/example.ipynb",
+]
