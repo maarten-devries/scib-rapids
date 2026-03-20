@@ -5,110 +5,118 @@ from ._utils import get_ndarray
 
 NdArray = np.ndarray | cp.ndarray
 
+# Fused CUDA kernel: binary search + Simpson index per cell.
+# Each thread handles one cell's entire computation.
+_SIMPSON_KERNEL_CODE = r"""
+extern "C" __global__
+void compute_simpson(
+    const float* __restrict__ knn_dists,   // (n_cells, n_neighbors)
+    const int*   __restrict__ knn_labels,  // (n_cells, n_neighbors)
+    const char*  __restrict__ self_mask,   // (n_cells, n_neighbors)
+    float*       __restrict__ out,         // (n_cells,)
+    const int    n_cells,
+    const int    n_neighbors,
+    const int    n_labels,
+    const float  logU,
+    const float  tol,
+    const int    max_iter
+) {
+    int cell = blockDim.x * blockIdx.x + threadIdx.x;
+    if (cell >= n_cells) return;
 
-def _Hbeta_batch(
-    knn_dists: cp.ndarray,
-    self_mask: cp.ndarray,
-    beta: cp.ndarray,
-) -> tuple[cp.ndarray, cp.ndarray]:
-    """Compute H and P for all cells simultaneously.
+    int offset = cell * n_neighbors;
 
-    Parameters
-    ----------
-    knn_dists
-        (n_cells, n_neighbors)
-    self_mask
-        (n_cells, n_neighbors) boolean — True for non-self neighbors
-    beta
-        (n_cells,) current beta values
+    // Binary search for beta that gives target perplexity
+    float beta = 1.0f;
+    float betamin = -1e30f;  // use large finite values instead of INFINITY
+    float betamax = 1e30f;
 
-    Returns
-    -------
-    H
-        (n_cells,) entropy values
-    P
-        (n_cells, n_neighbors) probability matrix
-    """
-    # beta[:, None] broadcasts to (n_cells, n_neighbors)
-    P = cp.exp(-knn_dists * beta[:, None])
-    P = cp.where(self_mask, P, 0.0)
-    sumP = cp.sum(P, axis=1)  # (n_cells,)
+    float sumP = 0.0f;
+    float sumDP = 0.0f;
 
-    # Branchless: compute both paths, select via where
-    safe_sumP = cp.where(sumP == 0, 1.0, sumP)  # avoid div-by-zero
-    H = cp.log(safe_sumP) + beta * cp.sum(knn_dists * P, axis=1) / safe_sumP
-    P_normed = P / safe_sumP[:, None]
+    // Initial Hbeta computation
+    for (int j = 0; j < n_neighbors; j++) {
+        if (self_mask[offset + j]) {
+            float p = expf(-knn_dists[offset + j] * beta);
+            sumP += p;
+            sumDP += knn_dists[offset + j] * p;
+        }
+    }
+    if (sumP == 0.0f) {
+        out[cell] = -1.0f;
+        return;
+    }
 
-    # Zero out where sumP == 0
-    zero_mask = sumP == 0  # (n_cells,)
-    H = cp.where(zero_mask, 0.0, H)
-    P_normed = cp.where(zero_mask[:, None], 0.0, P_normed)
+    float H = logf(sumP) + beta * sumDP / sumP;
+    float Hdiff = H - logU;
 
-    return H, P_normed
+    // Use large-but-finite sentinel to detect "unset" bounds
+    // (matches the behavior of using +/-inf in the Python version)
+    float BOUND_SENTINEL = 1e30f;
+    betamin = -BOUND_SENTINEL;
+    betamax = BOUND_SENTINEL;
 
+    for (int iter = 0; iter < max_iter; iter++) {
+        if (fabsf(Hdiff) < tol) break;
 
-def _get_neighbor_probabilities(
-    knn_dists: cp.ndarray,
-    self_mask: cp.ndarray,
-    perplexity: float,
-    tol: float = 1e-5,
-    max_iter: int = 50,
-) -> tuple[cp.ndarray, cp.ndarray]:
-    """Binary search for perplexity across all cells simultaneously.
+        if (Hdiff > 0.0f) {
+            betamin = beta;
+            beta = (betamax >= BOUND_SENTINEL) ? beta * 2.0f : (beta + betamax) * 0.5f;
+        } else {
+            betamax = beta;
+            beta = (betamin <= -BOUND_SENTINEL) ? beta * 0.5f : (beta + betamin) * 0.5f;
+        }
 
-    Parameters
-    ----------
-    knn_dists
-        (n_cells, n_neighbors)
-    self_mask
-        (n_cells, n_neighbors)
-    perplexity
-        Target perplexity
-    tol
-        Convergence tolerance for Hdiff
-    max_iter
-        Maximum binary search iterations
+        // Recompute Hbeta
+        sumP = 0.0f;
+        sumDP = 0.0f;
+        for (int j = 0; j < n_neighbors; j++) {
+            if (self_mask[offset + j]) {
+                float p = expf(-knn_dists[offset + j] * beta);
+                sumP += p;
+                sumDP += knn_dists[offset + j] * p;
+            }
+        }
+        if (sumP == 0.0f) {
+            out[cell] = -1.0f;
+            return;
+        }
+        H = logf(sumP) + beta * sumDP / sumP;
+        Hdiff = H - logU;
+    }
 
-    Returns
-    -------
-    H
-        (n_cells,) final entropy
-    P
-        (n_cells, n_neighbors) final probabilities
-    """
-    n_cells = knn_dists.shape[0]
-    logU = cp.float32(np.log(perplexity))
+    if (H == 0.0f) {
+        out[cell] = -1.0f;
+        return;
+    }
 
-    beta = cp.ones(n_cells, dtype=cp.float32)
-    betamin = cp.full(n_cells, -cp.inf, dtype=cp.float32)
-    betamax = cp.full(n_cells, cp.inf, dtype=cp.float32)
+    // Compute normalized P and accumulate per-label sums in shared memory
+    // Use dynamically-indexed shared memory for label_sums
+    extern __shared__ float shared_mem[];
+    int tid = threadIdx.x;
+    float* label_sums = shared_mem + tid * n_labels;
 
-    H, P = _Hbeta_batch(knn_dists, self_mask, beta)
-    Hdiff = H - logU
+    for (int l = 0; l < n_labels; l++) {
+        label_sums[l] = 0.0f;
+    }
 
-    for _ in range(max_iter):
-        # Check which cells still need updating
-        active = cp.abs(Hdiff) >= tol  # (n_cells,)
-        if not cp.any(active):
-            break
+    for (int j = 0; j < n_neighbors; j++) {
+        if (self_mask[offset + j]) {
+            float p = expf(-knn_dists[offset + j] * beta) / sumP;
+            label_sums[knn_labels[offset + j]] += p;
+        }
+    }
 
-        pos = Hdiff > 0  # H too high → increase beta
-        neg = ~pos
+    // Simpson = sum of squared label probabilities
+    float simpson = 0.0f;
+    for (int l = 0; l < n_labels; l++) {
+        simpson += label_sums[l] * label_sums[l];
+    }
+    out[cell] = simpson;
+}
+"""
 
-        # Update betamin/betamax (branchless, like JAX's jnp.where)
-        betamin = cp.where(active & pos, beta, betamin)
-        betamax = cp.where(active & neg, beta, betamax)
-
-        # Update beta
-        new_beta_pos = cp.where(betamax == cp.inf, beta * 2, (beta + betamax) / 2)
-        new_beta_neg = cp.where(betamin == -cp.inf, beta / 2, (beta + betamin) / 2)
-        new_beta = cp.where(pos, new_beta_pos, new_beta_neg)
-        beta = cp.where(active, new_beta, beta)
-
-        H, P = _Hbeta_batch(knn_dists, self_mask, beta)
-        Hdiff = H - logU
-
-    return H, P
+_SIMPSON_KERNEL = cp.RawKernel(_SIMPSON_KERNEL_CODE, "compute_simpson")
 
 
 def compute_simpson_index(
@@ -120,9 +128,10 @@ def compute_simpson_index(
     perplexity: float = 30,
     tol: float = 1e-5,
 ) -> np.ndarray:
-    """Compute the Simpson index for each cell using CuPy.
+    """Compute the Simpson index for each cell using a fused CUDA kernel.
 
-    Fully vectorized across all cells — no Python loops.
+    The entire binary search and Simpson computation runs in a single
+    GPU kernel launch — no Python loops, no per-cell overhead.
 
     Parameters
     ----------
@@ -148,27 +157,37 @@ def compute_simpson_index(
     """
     knn_dists = cp.asarray(knn_dists, dtype=cp.float32)
     knn_idx = cp.asarray(knn_idx)
-    labels = cp.asarray(labels)
+    labels = cp.asarray(labels, dtype=cp.int32)
     row_idx = cp.asarray(row_idx)
 
     n_cells, n_neighbors = knn_dists.shape
-    knn_labels = labels[knn_idx]  # (n_cells, n_neighbors)
-    self_mask = knn_idx != row_idx  # (n_cells, n_neighbors)
+    knn_labels = cp.asarray(labels[knn_idx], dtype=cp.int32)
+    self_mask = cp.asarray(knn_idx != row_idx, dtype=cp.int8)
 
-    # Vectorized binary search for all cells
-    H, P = _get_neighbor_probabilities(knn_dists, self_mask, perplexity, tol)
+    out = cp.empty(n_cells, dtype=cp.float32)
+    logU = np.float32(np.log(perplexity))
 
-    # Compute Simpson index: sum of squared per-label probabilities
-    # Build one-hot labels: (n_cells, n_neighbors, n_labels)
-    label_onehot = cp.eye(n_labels, dtype=cp.float32)[knn_labels]
+    block_size = 256
+    grid_size = (n_cells + block_size - 1) // block_size
+    # Shared memory: each thread needs n_labels floats for label_sums
+    shared_mem_bytes = block_size * n_labels * 4  # 4 bytes per float
 
-    # Weighted sum per label: (n_cells, n_labels)
-    sumP_per_label = cp.einsum("ij,ijk->ik", P, label_onehot)
+    _SIMPSON_KERNEL(
+        (grid_size,),
+        (block_size,),
+        (
+            knn_dists,
+            knn_labels,
+            self_mask,
+            out,
+            np.int32(n_cells),
+            np.int32(n_neighbors),
+            np.int32(n_labels),
+            np.float32(logU),
+            np.float32(tol),
+            np.int32(50),
+        ),
+        shared_mem=shared_mem_bytes,
+    )
 
-    # Simpson = sum of squares of per-label probabilities
-    simpson = cp.sum(sumP_per_label ** 2, axis=1)  # (n_cells,)
-
-    # Where H == 0, set simpson to -1
-    simpson = cp.where(H == 0, -1.0, simpson)
-
-    return get_ndarray(simpson)
+    return get_ndarray(out)
