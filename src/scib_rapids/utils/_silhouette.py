@@ -36,8 +36,8 @@ def _silhouette_reduce(
         clust_dists = clust_dists / label_freqs
         inter_clust_dists = cp.max(clust_dists, axis=1)
     elif between_cluster_distances == "mean_other":
-        clust_dists[row_idx, chunk_labels] = 0.0
-        total_other_dists = cp.sum(clust_dists, axis=1)
+        clust_dists[row_idx, chunk_labels] = cp.nan
+        total_other_dists = cp.nansum(clust_dists, axis=1)
         total_other_count = cp.sum(label_freqs) - label_freqs[chunk_labels]
         inter_clust_dists = total_other_dists / total_other_count
     elif between_cluster_distances == "nearest":
@@ -114,8 +114,7 @@ def silhouette_samples(
         X_gpu, chunk_size=chunk_size, reduce_fn=reduce_fn, metric=metric
     )
 
-    denom = label_freqs[labels_gpu] - 1
-    denom = cp.maximum(denom, 1)  # avoid division by zero
+    denom = (label_freqs - 1)[labels_gpu]
     intra_clust_dists = intra_clust_dists / denom
     sil_samples = inter_clust_dists - intra_clust_dists
     sil_samples = sil_samples / cp.maximum(intra_clust_dists, inter_clust_dists)
