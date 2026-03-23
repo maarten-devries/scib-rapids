@@ -40,18 +40,18 @@ Please refer to the [documentation][link-docs].
 
 ## Installation
 
-You need to have Python 3.11 or newer and a CUDA-capable GPU. We recommend installing in a [conda](https://docs.conda.io/en/latest/miniconda.html) environment with RAPIDS pre-installed.
+You need to have Python 3.11 or newer and a CUDA-capable GPU.
 
-1. Install the latest release on PyPI:
+We recommend installing [rapids-singlecell](https://rapids-singlecell.readthedocs.io/en/latest/Installation.html) and `scib-rapids` using `uv pip` rather than conda, as conda often causes dependency conflicts (e.g. `cupy` vs `cupy-cuda12x`).
 
 ```bash
-pip install scib-rapids
+uv pip install rapids-singlecell scib-rapids
 ```
 
-2. Install the latest development version:
+Alternatively, install the latest development version:
 
 ```bash
-pip install git+https://github.com/maarten-devries/scib-rapids.git@main
+uv pip install rapids-singlecell git+https://github.com/maarten-devries/scib-rapids.git@main
 ```
 
 ## Release notes
