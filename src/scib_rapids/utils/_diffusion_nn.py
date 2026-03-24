@@ -56,6 +56,13 @@ def _compute_eigen(
         evals = evals[::-1]
         evecs = evecs[:, ::-1]
 
+    # Canonicalize eigenvector signs: make the largest absolute element positive
+    # This resolves sign ambiguity that can differ across runs/processes
+    max_abs_idx = np.argmax(np.abs(evecs), axis=0)
+    signs = np.sign(evecs[max_abs_idx, np.arange(evecs.shape[1])])
+    signs[signs == 0] = 1
+    evecs *= signs
+
     return evals, evecs
 
 
