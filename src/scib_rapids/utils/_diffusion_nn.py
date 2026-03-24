@@ -48,7 +48,9 @@ def _compute_eigen(
         ncv = None
         which = "LM" if sort == "decrease" else "SM"
         matrix = matrix.astype(np.float64)
-        evals, evecs = scipy.sparse.linalg.eigsh(matrix, k=n_comps, which=which, ncv=ncv)
+        # Use deterministic starting vector to ensure reproducibility
+        v0 = np.ones(matrix.shape[0]) / np.sqrt(matrix.shape[0])
+        evals, evecs = scipy.sparse.linalg.eigsh(matrix, k=n_comps, which=which, ncv=ncv, v0=v0)
         evals, evecs = evals.astype(np.float32), evecs.astype(np.float32)
     if sort == "decrease":
         evals = evals[::-1]
