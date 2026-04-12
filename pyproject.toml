@@ -17,17 +17,17 @@ urls.Source = "https://github.com/maarten-devries/scib-rapids"
 urls.Home-page = "https://github.com/maarten-devries/scib-rapids"
 dependencies = [
     "anndata",
-    "cupy-cuda12x>=13.0",
     "numpy",
     "pandas",
     "scipy",
     "scikit-learn",
     "pynndescent",
-    "igraph>0.9.0",
     "umap-learn>=0.5.0",
 ]
 
 [project.optional-dependencies]
+cu12 = ["cupy-cuda12x[ctk]>=13.0", "cugraph-cu12", "cudf-cu12"]
+cu13 = ["cupy-cuda13x[ctk]>=13.0", "cugraph-cu13", "cudf-cu13"]
 dev = ["pre-commit", "twine>=4.0.2"]
 doc = [
     "sphinx>=4",

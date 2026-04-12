@@ -1,8 +1,8 @@
 import logging
-import random
 import warnings
 
-import igraph
+import cupy as cp
+import cupyx.scipy.sparse as cpsp
 import numpy as np
 from scipy.sparse import spmatrix
 from sklearn.metrics.cluster import adjusted_rand_score, normalized_mutual_info_score
@@ -21,13 +21,24 @@ def _compute_clustering_kmeans(X: np.ndarray, n_clusters: int) -> np.ndarray:
 
 
 def _compute_clustering_leiden(connectivity_graph: spmatrix, resolution: float, seed: int) -> np.ndarray:
-    rng = random.Random(seed)
-    igraph.set_random_number_generator(rng)
-    g = igraph.Graph.Weighted_Adjacency(connectivity_graph, mode="directed")
-    g.to_undirected(mode="each")
-    clustering = g.community_leiden(objective_function="modularity", weights="weight", resolution=resolution)
-    clusters = clustering.membership
-    return np.asarray(clusters)
+    import cudf
+    import cugraph
+
+    coo = cpsp.coo_matrix(connectivity_graph)
+    n = coo.shape[0]
+    sources = cp.asarray(coo.row)
+    targets = cp.asarray(coo.col)
+    weights = cp.asarray(coo.data, dtype=cp.float32)
+
+    edges = cudf.DataFrame({"src": sources, "dst": targets, "weight": weights})
+    g = cugraph.Graph(directed=False)
+    g.from_cudf_edgelist(edges, source="src", destination="dst", edge_attr="weight", renumber=False)
+
+    parts, _ = cugraph.leiden(g, resolution=resolution, random_state=seed)
+    parts = parts.sort_values("vertex")
+    clusters = cp.zeros(n, dtype=np.int64)
+    clusters[parts["vertex"].to_cupy()] = parts["partition"].to_cupy()
+    return cp.asnumpy(clusters)
 
 
 def _compute_nmi_ari_cluster_labels(
