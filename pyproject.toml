@@ -5,7 +5,7 @@ requires = ["hatchling"]
 
 [project]
 name = "scib-rapids"
-version = "0.1.0"
+version = "0.2.0"
 description = "GPU-accelerated single-cell integration benchmarking metrics using RAPIDS (cuML, CuPy)"
 readme = "README.md"
 requires-python = ">=3.11"
