@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning][].
 - Initial release with GPU-accelerated metrics using CuPy/RAPIDS.
 - All metrics from scib-metrics ported: silhouette, LISI, kBET, NMI/ARI, graph connectivity, isolated labels, PCR comparison, BRAS.
 - CuPy-based utility functions: cdist, pdist_squareform, PCA, KMeans, silhouette_samples, Simpson index.
+- cuGraph-backed Leiden clustering for GPU-accelerated NMI/ARI computation.
 - NeighborsResults dataclass with sparse graph properties.
 - Unit tests validating correctness against scikit-learn.
 - Benchmark test suite comparing runtime against scib-metrics.

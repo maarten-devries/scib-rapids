@@ -20,9 +20,11 @@
 [badge-zulip]: https://img.shields.io/badge/zulip-join_chat-brightgreen.svg
 [link-zulip]: https://scverse.zulipchat.com/
 
-GPU-accelerated metrics for benchmarking single-cell integration outputs using RAPIDS (cuML, CuPy).
+GPU-accelerated metrics for benchmarking single-cell integration outputs using RAPIDS (cuGraph, cuDF, CuPy).
 
-This package provides the same metrics as [scib-metrics](https://github.com/YosefLab/scib-metrics) but replaces JAX with [RAPIDS](https://rapids.ai/) (CuPy, cuML) for GPU acceleration. All implementations leverage CuPy for device-level computation on NVIDIA GPUs.
+This package provides the same metrics as [scib-metrics](https://github.com/YosefLab/scib-metrics)
+but replaces JAX with [RAPIDS](https://rapids.ai/) for GPU acceleration. Implementations use RAPIDS
+libraries such as CuPy and cuGraph for device-level computation on NVIDIA GPUs.
 
 ## Metrics
 

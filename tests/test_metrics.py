@@ -4,14 +4,19 @@ Tests verify that scib-rapids produces correct results by checking
 output types, shapes, and value ranges on toy data.
 """
 
+import sys
+
 import numpy as np
+import pandas as pd
 import pytest
+import scipy.sparse as sp
 from sklearn.datasets import make_blobs
 from sklearn.metrics import silhouette_samples as sk_silhouette_samples
 from sklearn.metrics.pairwise import pairwise_distances_argmin
 from sklearn.neighbors import NearestNeighbors
 
 import scib_rapids
+from scib_rapids.metrics import _nmi_ari
 from scib_rapids.nearest_neighbors import NeighborsResults
 from tests.utils.data import dummy_x_labels, dummy_x_labels_batch
 
@@ -90,11 +95,53 @@ def test_nmi_ari_cluster_labels_kmeans():
 
 
 def test_nmi_ari_cluster_labels_leiden():
+    pytest.importorskip("cugraph")
     X, labels = dummy_x_labels(symmetric_positive=True, x_is_neighbors_results=True)
     out = scib_rapids.nmi_ari_cluster_labels_leiden(X, labels, optimize_resolution=False, resolution=0.1)
     nmi, ari = out["nmi"], out["ari"]
     assert isinstance(nmi, float)
     assert isinstance(ari, float)
+
+
+def test_compute_clustering_leiden_uses_cugraph(monkeypatch):
+    calls = {}
+
+    class FakeGraph:
+        def from_cudf_edgelist(self, df, **kwargs):
+            calls["edgelist"] = df
+            calls["edgelist_kwargs"] = kwargs
+
+    class FakeClusters:
+        def to_pandas(self):
+            return pd.DataFrame({"vertex": [1, 0], "partition": [7, 3]})
+
+    def fake_leiden(graph, **kwargs):
+        calls["graph"] = graph
+        calls["leiden_kwargs"] = kwargs
+        return FakeClusters(), 0.0
+
+    monkeypatch.setitem(
+        sys.modules,
+        "cudf",
+        type("FakeCudf", (), {"DataFrame": staticmethod(pd.DataFrame), "Series": staticmethod(pd.Series)}),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "cugraph",
+        type("FakeCugraph", (), {"Graph": FakeGraph, "leiden": staticmethod(fake_leiden)}),
+    )
+
+    connectivity = sp.csr_matrix(np.array([[0.0, 0.25], [0.5, 0.0]], dtype=np.float32))
+    labels = _nmi_ari._compute_clustering_leiden(connectivity, resolution=0.4, seed=123)
+
+    np.testing.assert_array_equal(labels, np.array([3, 7]))
+    assert calls["edgelist_kwargs"].pop("vertices").tolist() == [0, 1]
+    assert calls["edgelist_kwargs"] == {
+        "source": "source",
+        "destination": "destination",
+        "weight": "weight",
+    }
+    assert calls["leiden_kwargs"] == {"resolution": 0.4, "random_state": 123}
 
 
 def test_kbet():
