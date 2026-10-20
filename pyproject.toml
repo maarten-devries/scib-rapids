@@ -26,8 +26,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-cu12 = ["cupy-cuda12x[ctk]>=13.0", "cugraph-cu12", "cudf-cu12"]
-cu13 = ["cupy-cuda13x[ctk]>=13.0", "cugraph-cu13", "cudf-cu13"]
+cu12 = ["cupy-cuda12x[ctk]>=13.0", "cugraph-cu12", "cudf-cu12", "cuml-cu12"]
+cu13 = ["cupy-cuda13x[ctk]>=13.0", "cugraph-cu13", "cudf-cu13", "cuml-cu13"]
 dev = ["pre-commit", "twine>=4.0.2"]
 doc = [
     "sphinx>=4",

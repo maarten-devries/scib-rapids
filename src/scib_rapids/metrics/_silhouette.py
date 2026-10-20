@@ -1,7 +1,6 @@
 from typing import Literal
 
 import numpy as np
-import pandas as pd
 
 from scib_rapids.utils import silhouette_samples
 
@@ -10,8 +9,10 @@ def silhouette_label(
     X: np.ndarray,
     labels: np.ndarray,
     rescale: bool = True,
-    chunk_size: int = 256,
+    chunk_size: int = 4096,
     metric: Literal["euclidean", "cosine"] = "euclidean",
+    *,
+    precomputed_silhouettes: np.ndarray | None = None,
 ) -> float:
     """Average silhouette width (ASW).
 
@@ -27,12 +28,21 @@ def silhouette_label(
         Size of chunks to process at a time.
     metric
         'euclidean' (default) or 'cosine'.
+    precomputed_silhouettes
+        Raw per-cell silhouettes computed with the same rows, labels, and metric.
+        When provided, skip distance computation. Rescaling is still applied here.
 
     Returns
     -------
     silhouette score
     """
-    asw = np.mean(silhouette_samples(X, labels, chunk_size=chunk_size, metric=metric))
+    if precomputed_silhouettes is None:
+        silhouettes = silhouette_samples(X, labels, chunk_size=chunk_size, metric=metric)
+    else:
+        silhouettes = np.asarray(precomputed_silhouettes)
+        if silhouettes.shape != (len(labels),) or X.shape[0] != len(labels):
+            raise ValueError("precomputed_silhouettes must be a vector aligned with X and labels")
+    asw = np.mean(silhouettes)
     if rescale:
         asw = (asw + 1) / 2
     return float(np.mean(asw))
@@ -43,7 +53,7 @@ def silhouette_batch(
     labels: np.ndarray,
     batch: np.ndarray,
     rescale: bool = True,
-    chunk_size: int = 256,
+    chunk_size: int = 4096,
     metric: Literal["euclidean", "cosine"] = "euclidean",
     between_cluster_distances: Literal["nearest", "mean_other", "furthest"] = "nearest",
 ) -> float:
@@ -70,7 +80,7 @@ def silhouette_batch(
     -------
     silhouette score
     """
-    sil_dfs = []
+    group_scores = []
     unique_labels = np.unique(labels)
     for group in unique_labels:
         labels_mask = labels == group
@@ -93,20 +103,9 @@ def silhouette_batch(
         if rescale:
             sil_per_group = 1 - sil_per_group
 
-        sil_dfs.append(
-            pd.DataFrame(
-                {
-                    "group": [group] * len(sil_per_group),
-                    "silhouette_score": sil_per_group,
-                }
-            )
-        )
+        group_scores.append(np.mean(sil_per_group, dtype=np.float64))
 
-    sil_df = pd.concat(sil_dfs).reset_index(drop=True)
-    sil_means = sil_df.groupby("group").mean()
-    asw = sil_means["silhouette_score"].mean()
-
-    return asw
+    return float(np.mean(group_scores)) if group_scores else float("nan")
 
 
 def bras(
