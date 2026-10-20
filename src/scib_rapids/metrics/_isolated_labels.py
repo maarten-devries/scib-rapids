@@ -14,6 +14,8 @@ def isolated_labels(
     batch: np.ndarray,
     rescale: bool = True,
     iso_threshold: int | None = None,
+    *,
+    precomputed_silhouettes: np.ndarray | None = None,
 ) -> float:
     """Isolated label score.
 
@@ -29,6 +31,9 @@ def isolated_labels(
         Scale asw into the range [0, 1].
     iso_threshold
         Max number of batches per label for label to be considered as isolated.
+    precomputed_silhouettes
+        Raw per-cell Euclidean silhouettes computed with the same rows and labels.
+        When provided, skip distance computation. Rescaling is still applied here.
 
     Returns
     -------
@@ -37,7 +42,12 @@ def isolated_labels(
     scores = {}
     iso_labels = _get_isolated_labels(labels, batch, iso_threshold)
 
-    silhouette_all = silhouette_samples(X, labels)
+    if precomputed_silhouettes is None:
+        silhouette_all = silhouette_samples(X, labels)
+    else:
+        silhouette_all = np.asarray(precomputed_silhouettes)
+        if silhouette_all.shape != (len(labels),) or X.shape[0] != len(labels):
+            raise ValueError("precomputed_silhouettes must be a vector aligned with X and labels")
     if rescale:
         silhouette_all = (silhouette_all + 1) / 2
 

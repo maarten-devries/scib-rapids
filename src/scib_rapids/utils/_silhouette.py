@@ -10,7 +10,7 @@ from ._utils import get_ndarray
 def silhouette_samples(
     X: np.ndarray,
     labels: np.ndarray,
-    chunk_size: int = 256,
+    chunk_size: int = 4096,
     metric: Literal["euclidean", "cosine"] = "euclidean",
     between_cluster_distances: Literal["nearest", "mean_other", "furthest"] = "nearest",
 ) -> np.ndarray:
@@ -23,7 +23,7 @@ def silhouette_samples(
     labels
         Array of shape (n_cells,) representing label values.
     chunk_size
-        Ignored (kept for API compatibility). cuML handles chunking internally.
+        Maximum number of rows per distance tile. Defaults to 4096.
     metric
         The distance metric: 'euclidean' (default) or 'cosine'.
     between_cluster_distances
@@ -36,18 +36,22 @@ def silhouette_samples(
     """
     if X.shape[0] != labels.shape[0]:
         raise ValueError("X and labels should have the same number of samples")
+    if chunk_size < 1:
+        raise ValueError("chunk_size must be positive")
+
+    labels_codes = np.asarray(pd.Categorical(labels).codes, dtype=np.int32)
+    if not 1 < np.unique(labels_codes).size < X.shape[0]:
+        return np.zeros(X.shape[0], dtype=np.float32)
 
     if between_cluster_distances != "nearest":
         return _silhouette_samples_chunked(X, labels, chunk_size, metric, between_cluster_distances)
 
-    labels_codes = np.asarray(pd.Categorical(labels).codes, dtype=np.int32)
-
     from cuml.metrics.cluster import silhouette_samples as cuml_silhouette_samples
 
-    X_gpu = cp.asarray(X, dtype=cp.float32)
+    X_gpu = cp.asarray(X, dtype=cp.float32, order="C")
     labels_gpu = cp.asarray(labels_codes)
 
-    scores = cuml_silhouette_samples(X_gpu, labels_gpu, metric=metric)
+    scores = cuml_silhouette_samples(X_gpu, labels_gpu, metric=metric, chunksize=chunk_size)
     return get_ndarray(scores)
 
 
