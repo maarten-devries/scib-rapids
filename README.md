@@ -54,6 +54,37 @@ Alternatively, install the latest development version:
 uv pip install rapids-singlecell git+https://github.com/maarten-devries/scib-rapids.git@main
 ```
 
+## GPU neighbor search and silhouettes
+
+Use exact GPU neighbors for the input embedding and for kBET's internal diffusion
+search. Diffusion eigendecomposition still runs on CPU. The default diffusion
+neighbor backend remains approximate CPU PyNNDescent; selecting `"cuml"` does not
+fall back to CPU if GPU search fails.
+
+```python
+import scib_rapids as scib
+
+neighbors = scib.nearest_neighbors.cuml(X, n_neighbors=90)
+kbet = scib.kbet_per_label(neighbors, batches, labels, neighbor_backend="cuml")
+
+# Reuse one raw silhouette vector for both label metrics.
+silhouettes = scib.utils.silhouette_samples(X, labels, chunk_size=4096)
+label_score = scib.silhouette_label(X, labels, precomputed_silhouettes=silhouettes)
+isolated_score = scib.isolated_labels(X, labels, batches, precomputed_silhouettes=silhouettes)
+batch_score = scib.silhouette_batch(X, labels, batches, chunk_size=4096)
+```
+
+Neighbor counts include self as the first neighbor with distance zero. GPU
+diffusion search uses Minkowski `p=2` (direct Euclidean distances), avoiding
+cancellation from large diffusion coordinates. The neighbor sets can differ from
+approximate CPU search, so compare methods using the same backend.
+
+Standard silhouettes use bounded 4096-row distance chunks by default. Explicit
+`chunk_size` values are honored. BRAS's alternative distance reductions retain
+their chunked implementation. Precomputed silhouettes must be raw values aligned
+with the same cells, labels, and distance metric; metric-specific rescaling and
+weighting are applied by the consuming functions.
+
 ## Release notes
 
 See the [changelog][changelog].

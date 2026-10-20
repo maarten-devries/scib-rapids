@@ -1,4 +1,5 @@
 import logging
+from typing import Literal
 
 import cupy as cp
 import numpy as np
@@ -77,6 +78,8 @@ def kbet_per_label(
     alpha: float = 0.05,
     diffusion_n_comps: int = 100,
     return_df: bool = False,
+    *,
+    neighbor_backend: Literal["pynndescent", "cuml"] = "pynndescent",
 ) -> float | tuple[float, pd.DataFrame]:
     """Compute kBET score per cell type label.
 
@@ -94,12 +97,17 @@ def kbet_per_label(
         Number of diffusion components for diffusion distance approximation.
     return_df
         Return dataframe of results in addition to score.
+    neighbor_backend
+        Neighbor search backend for diffusion coordinates: approximate CPU
+        ('pynndescent', default) or exact GPU ('cuml').
 
     Returns
     -------
     kbet_score
         Kbet score over all cells.
     """
+    if neighbor_backend not in {"pynndescent", "cuml"}:
+        raise ValueError("neighbor_backend must be 'pynndescent' or 'cuml'")
     if len(batches) != len(X.indices):
         raise ValueError("Length of batches does not match number of cells.")
     if len(labels) != len(X.indices):
@@ -133,7 +141,7 @@ def kbet_per_label(
             if n_comp == 1:
                 try:
                     dc = np.min([diffusion_n_comps, n_obs - 1])
-                    nn_graph_sub = diffusion_nn(conn_graph_sub, k=k0, n_comps=dc)
+                    nn_graph_sub = diffusion_nn(conn_graph_sub, k=k0, n_comps=dc, neighbor_backend=neighbor_backend)
                     score, _, _ = kbet(nn_graph_sub, batches=batches_sub, alpha=alpha)
                 except ValueError:
                     logger.info("Diffusion distance failed. Skip.")
@@ -148,7 +156,9 @@ def kbet_per_label(
                     conn_graph_sub_sub.sort_indices()
                     try:
                         dc = np.min([diffusion_n_comps, conn_graph_sub_sub.shape[0] - 1])
-                        nn_results_sub_sub = diffusion_nn(conn_graph_sub_sub, k=k0, n_comps=dc)
+                        nn_results_sub_sub = diffusion_nn(
+                            conn_graph_sub_sub, k=k0, n_comps=dc, neighbor_backend=neighbor_backend
+                        )
                         score, _, _ = kbet(nn_results_sub_sub, batches=batches_sub[idx_nonan], alpha=alpha)
                     except ValueError:
                         logger.info("Diffusion distance failed. Skip.")

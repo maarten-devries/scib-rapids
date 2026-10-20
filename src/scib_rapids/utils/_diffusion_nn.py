@@ -66,7 +66,13 @@ def _compute_eigen(
     return evals, evecs
 
 
-def diffusion_nn(X: csr_matrix, k: int, n_comps: int = 100) -> "nearest_neighbors.NeighborsResults":
+def diffusion_nn(
+    X: csr_matrix,
+    k: int,
+    n_comps: int = 100,
+    *,
+    neighbor_backend: Literal["pynndescent", "cuml"] = "pynndescent",
+) -> "nearest_neighbors.NeighborsResults":
     """Diffusion-based neighbors.
 
     Parameters
@@ -77,17 +83,27 @@ def diffusion_nn(X: csr_matrix, k: int, n_comps: int = 100) -> "nearest_neighbor
         Number of nearest neighbours to select.
     n_comps
         Number of components for diffusion map.
+    neighbor_backend
+        Approximate CPU search ('pynndescent', default) or exact GPU search
+        ('cuml'). The diffusion eigendecomposition remains on CPU.
 
     Returns
     -------
     Neighbors results
     """
+    if neighbor_backend not in {"pynndescent", "cuml"}:
+        raise ValueError("neighbor_backend must be 'pynndescent' or 'cuml'")
     transitions = _compute_transitions(X)
     evals, evecs = _compute_eigen(transitions, n_comps=n_comps)
     evals += _EPS
     embedding = evecs
     scaled_evals = np.array([e if e == 1 else e / (1 - e) for e in evals])
     embedding *= scaled_evals
-    nn_result = nearest_neighbors.pynndescent(embedding, n_neighbors=k + 1)
+    if neighbor_backend == "cuml":
+        # Diffusion scaling can produce large coordinates. Direct L2 avoids the
+        # cancellation of expanded squared norms without changing the metric.
+        nn_result = nearest_neighbors.cuml(embedding, n_neighbors=k + 1, metric="minkowski")
+    else:
+        nn_result = nearest_neighbors.pynndescent(embedding, n_neighbors=k + 1)
 
     return nn_result
